@@ -412,6 +412,15 @@ class BackgroundJobTest extends TestCase
         $this->assertFalse($this->invokePrivate('tasklistHasPid', [[], 1234]));
     }
 
+    // TODO(windows): the Windows branch is covered only at the parsing level
+    // above (tasklistHasPid, with synthetic rows). It has never run on a real
+    // Windows host, so verify end to end there:
+    //   - `tasklist /FI "PID eq N" /FO CSV /NH 2>NUL` runs, and exits 0 both
+    //     when the PID exists and when no task matches;
+    //   - isRunning() is true for a live PID and false once it has exited;
+    //   - exec()'s `start /B` path launches (it returns 0 as the PID, so
+    //     isRunning() cannot be used to confirm the launch).
+
     // --- isWindows ---
 
     public function testIsWindowsReturnsBoolean(): void
