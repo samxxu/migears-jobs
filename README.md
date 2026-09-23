@@ -6,6 +6,10 @@ Minimalist background job runner for PHP. Fire and forget — no queues, no work
 
 Launch shell commands or PHP scripts as asynchronous background processes with a single method call.
 
+> **Background**: miGears is the open-source successor of **TinyGears**, a
+> self-developed PHP framework. It was renamed and open-sourced recently because
+> the name *TinyGears* is already taken in the open-source community.
+
 ## Features
 
 - **Fire and forget** — launch background processes in one line
