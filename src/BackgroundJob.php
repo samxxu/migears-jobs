@@ -49,9 +49,12 @@ class BackgroundJob
             $fullCommand = 'start /B ' . $command . $redirect;
             $pid = self::launchWindows($fullCommand, $workingDir);
         } else {
-            // Unix-like: nohup + & for true background
-            $fullCommand = 'nohup ' . $command . $redirect . ' & echo $!';
-            $pid = self::launchUnix($fullCommand, $workingDir);
+            $pidFile = self::createPidFile();
+            // Unix-like: nohup + & for true background. We capture the PID from a
+            // temp file, never a pipe, so the detached job (and anything it spawns)
+            // cannot hold our descriptors open — no read-blocking, no SIGPIPE.
+            $fullCommand = 'nohup ' . $command . $redirect . ' & echo $! > ' . escapeshellarg($pidFile);
+            $pid = self::launchUnix($fullCommand, $pidFile, $workingDir);
         }
 
         return $pid;
@@ -75,7 +78,7 @@ class BackgroundJob
         ?string $phpBinary = null,
         ?string $workingDir = null,
     ): int {
-        $php = $phpBinary ?? PHP_BINARY;
+        $php = escapeshellarg($phpBinary ?? PHP_BINARY);
         $script = escapeshellarg($scriptPath);
         $argString = $args !== [] ? ' ' . implode(' ', array_map('escapeshellarg', $args)) : '';
 
@@ -92,13 +95,54 @@ class BackgroundJob
         }
 
         if (self::isWindows()) {
-            exec('tasklist /FI "PID eq ' . $pid . '" 2>NUL', $output, $returnVar);
-            return $returnVar === 0 && isset($output[3]) && str_contains($output[3], (string) $pid);
+            exec('tasklist /FI "PID eq ' . $pid . '" /FO CSV /NH 2>NUL', $output, $returnVar);
+            if ($returnVar !== 0) {
+                return false;
+            }
+            return self::tasklistHasPid($output, $pid);
         }
 
-        // Unix: kill -0 checks if process exists without sending a signal
-        exec('kill -0 ' . $pid . ' 2>/dev/null', $_, $returnVar);
-        return $returnVar === 0;
+        // Unix: the ps state tells us whether the process is gone.
+        exec('ps -p ' . $pid . ' -o stat= 2>/dev/null', $statOut, $statRc);
+        if ($statRc !== 0 || $statOut === []) {
+            return false;
+        }
+        $stat = trim($statOut[0]);
+
+        return $stat !== '' && $stat !== '?' && ! self::isZombieState($stat);
+    }
+
+    /**
+     * Whether a ps state string denotes a finished (zombie / defunct) process.
+     *
+     * The state letter comes first, so ZN, Zs and Z+ are zombies too — match
+     * the prefix, not the whole string.
+     */
+    private static function isZombieState(string $stat): bool
+    {
+        return str_starts_with($stat, 'Z');
+    }
+
+    /**
+     * Whether a tasklist CSV dump contains the given PID.
+     *
+     * tasklist columns are "Image Name","PID","Session Name",... — the PID is
+     * the second field, so parse the CSV instead of guessing a line offset.
+     *
+     * @param list<string> $lines
+     */
+    private static function tasklistHasPid(array $lines, int $pid): bool
+    {
+        foreach ($lines as $line) {
+            // $escape is passed explicitly: omitting it is deprecated as of
+            // PHP 8.4 and its default value is set to change.
+            $fields = str_getcsv($line, ',', '"', '');
+            if (isset($fields[1]) && (int) $fields[1] === $pid) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -110,34 +154,52 @@ class BackgroundJob
     }
 
     /**
+     * Create a temp file the child shell writes the PID into.
+     */
+    private static function createPidFile(): string
+    {
+        $path = tempnam(sys_get_temp_dir(), 'bg');
+        if ($path === false) {
+            throw new \RuntimeException('Failed to create temporary PID file');
+        }
+        return $path;
+    }
+
+    /**
      * Launch a background process on Unix-like systems.
      *
      * Uses sh -c so shell features (&, $!) work correctly.
      */
-    private static function launchUnix(string $command, ?string $workingDir): int
+    private static function launchUnix(string $command, string $pidFile, ?string $workingDir): int
     {
         $cwd = $workingDir ?? getcwd();
 
+        // Every fd points at /dev/null: the detached job (and anything it
+        // spawns) can never hold our descriptors open, so there is no read-
+        // blocking and no risk of SIGPIPE killing the job. The PID arrives
+        // via the temp file instead of a pipe.
         $descriptors = [
-            0 => ['pipe', 'r'],  // stdin
-            1 => ['pipe', 'w'],  // stdout (we read PID from here)
-            2 => ['pipe', 'w'],  // stderr
+            0 => ['file', '/dev/null', 'r'],
+            1 => ['file', '/dev/null', 'w'],
+            2 => ['file', '/dev/null', 'w'],
         ];
 
         // Wrap in sh -c for proper shell handling of & and $!
         $process = proc_open(['sh', '-c', $command], $descriptors, $pipes, $cwd);
 
         if (!is_resource($process)) {
+            @unlink($pidFile);
             throw new \RuntimeException('Failed to launch background process');
         }
 
-        $output = stream_get_contents($pipes[1]);
-        fclose($pipes[0]);
-        fclose($pipes[1]);
-        fclose($pipes[2]);
+        // proc_close waits for the parent shell only, which exits right after
+        // writing the PID file — long before the detached job finishes.
         proc_close($process);
 
-        $pid = (int) trim($output);
+        $pidText = file_exists($pidFile) ? (string) file_get_contents($pidFile) : '';
+        @unlink($pidFile);
+
+        $pid = (int) trim($pidText);
 
         if ($pid <= 0) {
             throw new \RuntimeException('Failed to get background process PID');

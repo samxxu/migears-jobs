@@ -61,6 +61,8 @@ $pid = BackgroundJob::script(
 );
 ```
 
+> **Web SAPI note** — `script()` runs the script with `PHP_BINARY` by default. Under php-fpm or an Apache PHP module that points at the web process, not the CLI binary, so pass an explicit CLI `$phpBinary` when launching jobs from a web request.
+
 ### Check if a job is still running
 
 ```php
@@ -92,6 +94,8 @@ BackgroundJob::exec(
 | `BackgroundJob::isRunning(int $pid)` | `bool` | Check if a process is still running |
 | `BackgroundJob::isWindows()` | `bool` | Check if running on Windows |
 
+> On Windows `exec()` cannot report a PID, so it returns `0` — there is then no status to poll with `isRunning()`.
+
 ## Use Cases
 
 - Sending bulk emails asynchronously
@@ -104,11 +108,16 @@ BackgroundJob::exec(
 
 - **No queue system** — jobs are fire-and-forget, no ordering guarantee
 - **No retry logic** — failed jobs stay failed
-- **No status tracking** — only checks if process is alive (Unix only)
+- **No status tracking** — only checks if process is alive
 - **No scheduling** — use cron for scheduled jobs
 - **No worker pool** — each job is a separate process
+- **No launch feedback** — `exec()` returns a PID as soon as the shell forks, even if the command then fails to start (a missing binary, say). Pass `logFile` to capture such errors.
 
 If you need any of the above, use a proper queue system (Redis Queue, RabbitMQ, etc.).
+
+## Security Notes
+
+`exec()` hands `$command` straight to a shell (`sh -c`) **without escaping or validation** — this is deliberate, so you can pass a full shell command. For the same reason, **never interpolate untrusted input** (user input, request params) into `$command`; escape it yourself or prefer `script()`, which shell-escapes the PHP path and every argument. `$logFile` and `$workingDir` are escaped for you.
 
 ## Design Philosophy
 
@@ -181,6 +190,8 @@ $pid = BackgroundJob::script(
 );
 ```
 
+> **Web SAPI 提示** —— `script()` 默认用 `PHP_BINARY` 运行脚本。在 php-fpm 或 Apache PHP 模块下，该值指向 Web 进程而非 CLI 二进制，因此从 Web 请求中触发任务时，请显式传入 CLI 的 `$phpBinary`。
+
 ### 检查任务是否仍在运行
 
 ```php
@@ -212,6 +223,8 @@ BackgroundJob::exec(
 | `BackgroundJob::isRunning(int $pid)` | `bool` | 检查进程是否仍在运行 |
 | `BackgroundJob::isWindows()` | `bool` | 检查是否在 Windows 上运行 |
 
+> 在 Windows 上 `exec()` 无法取得 PID，会返回 `0`——此时没有可供 `isRunning()` 检查的状态。
+
 ## 适用场景
 
 - 异步发送批量邮件
@@ -224,11 +237,16 @@ BackgroundJob::exec(
 
 - **没有队列系统** — 任务是发了就忘，不保证执行顺序
 - **没有重试逻辑** — 失败的任务就是失败了
-- **没有状态跟踪** — 只能检查进程是否存活（仅限 Unix）
+- **没有状态跟踪** — 只能检查进程是否存活
 - **没有调度功能** — 定时任务请用 cron
 - **没有 worker 池** — 每个任务都是独立进程
+- **没有启动反馈** — shell fork 之后 `exec()` 就返回 PID，即使命令随后启动失败（例如二进制文件不存在）也一样返回；请传入 `logFile` 以捕获这类错误。
 
 如果你需要以上任何功能，请使用专业的队列系统（Redis Queue、RabbitMQ 等）。
+
+## 安全注意
+
+`exec()` 会把 `$command` 原样交给 shell（`sh -c`）执行，**不做任何转义或校验**——这是有意的，因此你可以传入完整的 shell 命令。同理，**切勿把不受信任的输入**（用户输入、请求参数）拼进 `$command`；请自行转义，或优先使用 `script()`——它会对 PHP 路径和每个参数做 shell 转义。`$logFile` 与 `$workingDir` 会由本库负责转义。
 
 ## 设计哲学
 
