@@ -126,9 +126,10 @@ class BackgroundJobTest extends TestCase
         // Command still running right after launch
         $this->assertTrue(BackgroundJob::isRunning($pid));
 
-        // Once the command finishes, its output lands in the log file
-        $this->waitForFile($logFile, 4.0);
-        $this->assertStringContainsString('done', file_get_contents($logFile));
+        // The redirect covers the whole command now, so the log file appears as
+        // soon as the job starts; wait for the content, not merely the file.
+        $this->waitForFileContent($logFile, 'done', 4.0);
+        usleep(300000); // let the wrapper shell exit
         $this->assertFalse(BackgroundJob::isRunning($pid));
     }
 
@@ -167,6 +168,47 @@ class BackgroundJobTest extends TestCase
         );
     }
 
+    public function testCommandEndingWithAmpersandStillLogsToLogFile(): void
+    {
+        if (BackgroundJob::isWindows()) {
+            $this->markTestSkipped('Skipped on Windows');
+        }
+
+        // A trailing `&` used to split the launch line, so the redirect never
+        // reached the real command and its output bypassed logFile entirely.
+        $logFile = $this->tmpDir . '/trailing_amp.log';
+
+        BackgroundJob::exec('echo "logged after amp" &', logFile: $logFile);
+
+        $this->waitForFileContent($logFile, 'logged after amp');
+        $this->assertStringContainsString('logged after amp', (string) file_get_contents($logFile));
+    }
+
+    public function testExecWorksWhenCurrentDirectoryIsGone(): void
+    {
+        if (BackgroundJob::isWindows()) {
+            $this->markTestSkipped('Skipped on Windows');
+        }
+
+        // getcwd() returns false once the directory is removed; that false used
+        // to be handed straight to proc_open() and raised a TypeError.
+        $gone = $this->tmpDir . '/gone';
+        mkdir($gone);
+
+        $previous = getcwd();
+        chdir($gone);
+        rmdir($gone);
+
+        try {
+            $this->assertFalse(getcwd(), 'precondition: the working directory should be gone');
+
+            $pid = BackgroundJob::exec('true');
+            $this->assertGreaterThan(0, $pid);
+        } finally {
+            chdir($previous);
+        }
+    }
+
     // --- helpers ---
 
     /**
@@ -191,6 +233,23 @@ class BackgroundJobTest extends TestCase
             if (microtime(true) >= $deadline) {
                 $this->fail("Expected file '{$path}' was not created within {$timeout}s");
             }
+            usleep(50000); // 50ms
+        }
+    }
+
+    private function waitForFileContent(string $path, string $needle, float $timeout = 3.0): void
+    {
+        $deadline = microtime(true) + $timeout;
+
+        while (true) {
+            if (file_exists($path) && str_contains((string) file_get_contents($path), $needle)) {
+                return;
+            }
+
+            if (microtime(true) >= $deadline) {
+                $this->fail("Expected '{$needle}' in '{$path}' within {$timeout}s");
+            }
+
             usleep(50000); // 50ms
         }
     }
@@ -355,7 +414,37 @@ class BackgroundJobTest extends TestCase
         );
     }
 
-    // --- state classification (pure helpers) ---
+    public function testIsRunningReturnsFalseWhenExecIsDisabled(): void
+    {
+        if (BackgroundJob::isWindows()) {
+            $this->markTestSkipped('Skipped on Windows');
+        }
+
+        // isRunning() probes with exec(); where a host disables it the call
+        // would be a fatal Error rather than a clean false. Run the probe in a
+        // child process so exec can be disabled for it alone.
+        $probe = $this->tmpDir . '/exec_disabled.php';
+        $class = dirname(__DIR__) . '/src/BackgroundJob.php';
+
+        file_put_contents(
+            $probe,
+            '<?php require ' . var_export($class, true) . '; '
+            . 'echo (MiGears\\Jobs\\BackgroundJob::isRunning(1) ? "true" : "false");'
+        );
+
+        exec(
+            escapeshellarg(PHP_BINARY)
+            . ' -d disable_functions=exec '
+            . escapeshellarg($probe) . ' 2>&1',
+            $output,
+            $returnVar
+        );
+
+        $this->assertSame(0, $returnVar, 'probe failed: ' . implode("\n", $output));
+        $this->assertSame('false', trim(implode('', $output)));
+    }
+
+    // --- pure helpers (state classification, command construction) ---
 
     public function testZombieStateDetectionCoversFlagBearingStates(): void
     {
@@ -412,14 +501,37 @@ class BackgroundJobTest extends TestCase
         $this->assertFalse($this->invokePrivate('tasklistHasPid', [[], 1234]));
     }
 
-    // TODO(windows): the Windows branch is covered only at the parsing level
-    // above (tasklistHasPid, with synthetic rows). It has never run on a real
-    // Windows host, so verify end to end there:
+    public function testRedirectUsesPlatformNullDevice(): void
+    {
+        // No log file: output is discarded via the platform's null device.
+        $this->assertSame(' > /dev/null 2>&1', $this->invokePrivate('buildRedirect', [null, false]));
+        $this->assertSame(' > NUL 2>&1', $this->invokePrivate('buildRedirect', [null, true]));
+
+        // With a log file, both platforms append stdout and stderr to it.
+        $expected = ' >> ' . escapeshellarg('job.log') . ' 2>&1';
+        $this->assertSame($expected, $this->invokePrivate('buildRedirect', ['job.log', false]));
+        $this->assertSame($expected, $this->invokePrivate('buildRedirect', ['job.log', true]));
+    }
+
+    public function testWindowsCommandPassesAnEmptyTitle(): void
+    {
+        // Without the empty title, `start` reads the first quoted token as the
+        // window title, so a quoted command (as script() builds) never runs.
+        $this->assertSame(
+            'start "" /B "C:\php\php.exe" "job.php" > NUL 2>&1',
+            $this->invokePrivate('windowsCommand', ['"C:\php\php.exe" "job.php"', ' > NUL 2>&1'])
+        );
+    }
+
+    // TODO(windows): everything Windows-side is covered only by the pure-helper
+    // tests above; none of it has run on a real Windows host. Verify end to end
+    // there:
     //   - `tasklist /FI "PID eq N" /FO CSV /NH 2>NUL` runs, and exits 0 both
     //     when the PID exists and when no task matches;
     //   - isRunning() is true for a live PID and false once it has exited;
-    //   - exec()'s `start /B` path launches (it returns 0 as the PID, so
-    //     isRunning() cannot be used to confirm the launch).
+    //   - exec() with logFile === null discards output via NUL, not /dev/null;
+    //   - exec()'s `start "" /B` path launches a quoted command (the script()
+    //     form); it returns 0 as the PID, so isRunning() cannot confirm it.
 
     // --- isWindows ---
 

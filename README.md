@@ -19,7 +19,7 @@ Launch shell commands or PHP scripts as asynchronous background processes with a
 - **Log redirection** — capture stdout + stderr to a log file
 - **Working directory** — run jobs from any directory
 - **Zero dependencies** — just PHP 8.1+
-- **Single class, ~150 lines**
+- **Single class, ~290 lines**
 
 ## Installation
 
@@ -148,7 +148,7 @@ MIT
 - **日志重定向** — 将 stdout + stderr 捕获到日志文件
 - **工作目录** — 可从任意目录运行任务
 - **零依赖** — 只需要 PHP 8.1+
-- **单文件，~150 行**
+- **单文件，~290 行**
 
 ## 安装
 
