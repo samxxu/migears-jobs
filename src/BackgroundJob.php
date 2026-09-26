@@ -245,7 +245,7 @@ class BackgroundJob
 
         // proc_close waits for the parent shell only, which exits right after
         // writing the PID file — long before the detached job finishes.
-        proc_close($process);
+        $exitCode = proc_close($process);
 
         $pidText = file_exists($pidFile) ? (string) file_get_contents($pidFile) : '';
         @unlink($pidFile);
@@ -253,7 +253,10 @@ class BackgroundJob
         $pid = (int) trim($pidText);
 
         if ($pid <= 0) {
-            throw new \RuntimeException('Failed to get background process PID');
+            throw new \RuntimeException(
+                'Failed to get background process PID'
+                . ($exitCode === 0 ? '' : " (launch shell exited with status {$exitCode})")
+            );
         }
 
         return $pid;

@@ -21,6 +21,8 @@ Launch shell commands or PHP scripts as asynchronous background processes with a
 - **Zero dependencies** — just PHP 8.1+
 - **Single class, ~290 lines**
 
+> Unix is the tested path. The Windows branch (`start "" /B` with `NUL`) is implemented but has not been verified end to end, and `exec()` cannot return a PID there — see the API notes.
+
 ## Installation
 
 ```bash
@@ -149,6 +151,8 @@ MIT
 - **工作目录** — 可从任意目录运行任务
 - **零依赖** — 只需要 PHP 8.1+
 - **单文件，~290 行**
+
+> Unix 为经验证的路径。Windows 分支（`start "" /B` 配 `NUL`）已实现但尚未端到端验证，且该平台下 `exec()` 无法返回 PID——详见 API 说明。
 
 ## 安装
 

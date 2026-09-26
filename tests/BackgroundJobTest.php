@@ -209,6 +209,27 @@ class BackgroundJobTest extends TestCase
         }
     }
 
+    public function testLaunchUnixReportsTheShellExitStatusWhenNoPidIsWritten(): void
+    {
+        if (BackgroundJob::isWindows()) {
+            $this->markTestSkipped('Skipped on Windows');
+        }
+
+        // Mirror the command shape exec() builds: the launch shell writes the
+        // PID to a file. Point that at a path whose directory does not exist, so
+        // the shell exits non-zero and the error should carry that status.
+        $unwritable = $this->tmpDir . '/missing/pid';
+        $command = 'true & echo $! > ' . escapeshellarg($unwritable);
+
+        try {
+            $this->invokePrivate('launchUnix', [$command, $unwritable, null]);
+            $this->fail('Expected a RuntimeException to be thrown');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('Failed to get background process PID', $e->getMessage());
+            $this->assertStringContainsString('exited with status', $e->getMessage());
+        }
+    }
+
     // --- helpers ---
 
     /**
