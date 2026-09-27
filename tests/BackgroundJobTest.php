@@ -231,6 +231,39 @@ class BackgroundJobTest extends TestCase
         }
     }
 
+    public function testLaunchWindowsReportsANonZeroLaunchStatus(): void
+    {
+        if (BackgroundJob::isWindows()) {
+            $this->markTestSkipped('the POSIX popen()/pclose() branch is what this probe reaches');
+        }
+
+        // launchWindows() is Windows-only, but its body is plain popen()/pclose()
+        // which runs here too. Run the probe in a child process so the launcher's
+        // shell diagnostics stay out of the suite output.
+        $probe = $this->tmpDir . '/launch_windows_probe.php';
+        $class = dirname(__DIR__) . '/src/BackgroundJob.php';
+
+        file_put_contents(
+            $probe,
+            '<?php require ' . var_export($class, true) . '; '
+            . '$m = new ReflectionMethod(MiGears\\Jobs\\BackgroundJob::class, "launchWindows"); '
+            . 'try { $m->invoke(null, "exit 3", null); echo "no-throw"; } '
+            . 'catch (RuntimeException $e) { '
+            . 'echo str_contains($e->getMessage(), "Failed to launch background process") ? "threw" : "wrong-message"; '
+            . '}'
+        );
+
+        exec(
+            escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($probe) . ' 2>/dev/null',
+            $output,
+            $returnVar
+        );
+
+        $this->assertSame(0, $returnVar, 'probe failed: ' . implode("\n", $output));
+        // A non-zero launcher status used to be discarded silently; it must throw.
+        $this->assertSame('threw', trim(implode('', $output)));
+    }
+
     // --- helpers ---
 
     /**

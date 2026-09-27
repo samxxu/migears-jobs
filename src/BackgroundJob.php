@@ -281,7 +281,12 @@ class BackgroundJob
             throw new \RuntimeException('Failed to launch background process');
         }
 
-        pclose($handle);
+        // pclose() reaps the launcher and reports its status; a non-zero result
+        // means the launch shell could not run the command, so it must not be
+        // discarded silently.
+        if (pclose($handle) !== 0) {
+            throw new \RuntimeException('Failed to launch background process');
+        }
 
         return 0; // PID not easily available on Windows with this method
     }
