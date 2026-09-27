@@ -151,7 +151,8 @@ class BackgroundJobTest extends TestCase
 
         // Multi-& command: the first job's stdout is not covered by the
         // trailing redirect, so it used to hold the pipe and die on SIGPIPE.
-        BackgroundJob::exec('php ' . escapeshellarg($script) . ' & sleep 2');
+        // PHP_BINARY keeps the child on the interpreter running these tests.
+        BackgroundJob::exec(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($script) . ' & sleep 2');
 
         // How soon the detached child gets to write depends on the machine, so
         // wait for the count instead of assuming a fixed sleep is enough.
@@ -425,6 +426,12 @@ class BackgroundJobTest extends TestCase
             $this->markTestSkipped('Zombie state is a Unix concept');
         }
 
+        // The generated parent process forks, so pcntl has to be available in
+        // the CLI binary that runs the tests (script() spawns PHP_BINARY).
+        if (! function_exists('pcntl_fork')) {
+            $this->markTestSkipped('pcntl is required to create a zombie process');
+        }
+
         // A parent that forks a quick child and never waits leaves the child
         // as a zombie — its PID is still in the table, so naive existence
         // checks (kill -0) would report true.
@@ -442,7 +449,7 @@ class BackgroundJobTest extends TestCase
             . 'sleep(8);'
         );
 
-        BackgroundJob::exec('php ' . escapeshellarg($script), logFile: $logFile);
+        BackgroundJob::script($script, logFile: $logFile);
 
         // Wait for the child to die and become a zombie (parent never waits).
         $this->waitForFile($marker, 3.0);
@@ -577,6 +584,11 @@ class BackgroundJobTest extends TestCase
     //     when the PID exists and when no task matches;
     //   - isRunning() is true for a live PID and false once it has exited;
     //   - exec() with logFile === null discards output via NUL, not /dev/null;
+    //   - exec() with a logFile really captures the child's output. The redirect
+    //     is appended after `start "" /B`, so cmd binds it to start rather than
+    //     to the child; review P2-1 doubts the child inherits it. If it does
+    //     not, move the redirect inside a command processor, e.g.
+    //     `start "" /B cmd /c "<cmd> > log 2>&1"`.
     //   - exec()'s `start "" /B` path launches a quoted command (the script()
     //     form); it returns 0 as the PID, so isRunning() cannot confirm it.
 
