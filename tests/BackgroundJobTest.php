@@ -153,14 +153,14 @@ class BackgroundJobTest extends TestCase
         // trailing redirect, so it used to hold the pipe and die on SIGPIPE.
         BackgroundJob::exec('php ' . escapeshellarg($script) . ' & sleep 2');
 
-        usleep(500000);
-        $first = (int) (file_exists($marker) ? file_get_contents($marker) : 0);
+        // How soon the detached child gets to write depends on the machine, so
+        // wait for the count instead of assuming a fixed sleep is enough.
+        $first = $this->waitForCounter($marker, 1, 5.0, 'spammer never wrote within 5s');
         $this->assertGreaterThan(0, $first, 'spammer never wrote');
 
-        usleep(400000);
-        $second = (int) file_get_contents($marker);
-
-        // Counter keeps increasing => the process is alive and writing.
+        // Counter keeps increasing => the process is alive and writing. A job
+        // that died on SIGPIPE stops here, and the wait runs out instead.
+        $second = $this->waitForCounter($marker, $first + 3, 5.0, 'spammer stopped writing within 5s');
         $this->assertGreaterThan(
             $first + 2,
             $second,
@@ -269,6 +269,32 @@ class BackgroundJobTest extends TestCase
 
             if (microtime(true) >= $deadline) {
                 $this->fail("Expected '{$needle}' in '{$path}' within {$timeout}s");
+            }
+
+            usleep(50000); // 50ms
+        }
+    }
+
+    /**
+     * Poll a counter file until it reaches $minimum, and fail after $timeout.
+     *
+     * The file is written by a detached child, so how soon the first write
+     * lands is a property of the machine: long enough locally, and not always
+     * long enough on a loaded CI runner.
+     */
+    private function waitForCounter(string $path, int $minimum, float $timeout, string $message): int
+    {
+        $deadline = microtime(true) + $timeout;
+
+        while (true) {
+            $value = (int) (file_exists($path) ? file_get_contents($path) : 0);
+
+            if ($value >= $minimum) {
+                return $value;
+            }
+
+            if (microtime(true) >= $deadline) {
+                $this->fail("{$message} (counter stuck at {$value}, wanted {$minimum})");
             }
 
             usleep(50000); // 50ms
