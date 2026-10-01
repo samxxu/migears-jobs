@@ -264,6 +264,75 @@ class BackgroundJobTest extends TestCase
         $this->assertSame('threw', trim(implode('', $output)));
     }
 
+    public function testExecRaisesARuntimeExceptionWhenProcOpenIsDisabled(): void
+    {
+        if (BackgroundJob::isWindows()) {
+            $this->markTestSkipped('the proc_open() branch is what this probe reaches');
+        }
+
+        // exec() launches through proc_open(); where a host disables it the bare
+        // call used to be a fatal Error instead of the RuntimeException the other
+        // launch paths raise. Run the probe in a child process so proc_open can
+        // be disabled for it alone.
+        $probe = $this->tmpDir . '/proc_open_disabled.php';
+        $class = dirname(__DIR__) . '/src/BackgroundJob.php';
+
+        file_put_contents(
+            $probe,
+            '<?php require ' . var_export($class, true) . '; '
+            . 'try { MiGears\\Jobs\\BackgroundJob::exec("true"); echo "no-throw"; } '
+            . 'catch (RuntimeException $e) { '
+            . 'echo str_contains($e->getMessage(), "Failed to launch background process") ? "threw" : "wrong-message"; '
+            . '} catch (Error $e) { echo "fatal"; }'
+        );
+
+        exec(
+            escapeshellarg(PHP_BINARY)
+            . ' -d disable_functions=proc_open '
+            . escapeshellarg($probe) . ' 2>/dev/null',
+            $output,
+            $returnVar
+        );
+
+        $this->assertSame(0, $returnVar, 'probe failed: ' . implode("\n", $output));
+        // A disabled proc_open() must surface as the module's own exception, not a fatal Error.
+        $this->assertSame('threw', trim(implode('', $output)));
+    }
+
+    public function testLaunchWindowsRaisesARuntimeExceptionWhenPopenIsDisabled(): void
+    {
+        if (BackgroundJob::isWindows()) {
+            $this->markTestSkipped('the POSIX popen()/pclose() branch is what this probe reaches');
+        }
+
+        // launchWindows() launches through popen(); where a host disables it the
+        // bare call used to be a fatal Error. Its body is plain popen()/pclose(),
+        // which runs here too.
+        $probe = $this->tmpDir . '/popen_disabled.php';
+        $class = dirname(__DIR__) . '/src/BackgroundJob.php';
+
+        file_put_contents(
+            $probe,
+            '<?php require ' . var_export($class, true) . '; '
+            . '$m = new ReflectionMethod(MiGears\\Jobs\\BackgroundJob::class, "launchWindows"); '
+            . 'try { $m->invoke(null, "true", null); echo "no-throw"; } '
+            . 'catch (RuntimeException $e) { '
+            . 'echo str_contains($e->getMessage(), "Failed to launch background process") ? "threw" : "wrong-message"; '
+            . '} catch (Error $e) { echo "fatal"; }'
+        );
+
+        exec(
+            escapeshellarg(PHP_BINARY)
+            . ' -d disable_functions=popen '
+            . escapeshellarg($probe) . ' 2>/dev/null',
+            $output,
+            $returnVar
+        );
+
+        $this->assertSame(0, $returnVar, 'probe failed: ' . implode("\n", $output));
+        $this->assertSame('threw', trim(implode('', $output)));
+    }
+
     // --- helpers ---
 
     /**
@@ -490,9 +559,12 @@ class BackgroundJobTest extends TestCase
         $childPid = (int) trim((string) @file_get_contents($marker));
         $this->assertGreaterThan(0, $childPid, 'child PID not captured');
 
-        // Sanity: confirm the kernel really reports Z for that PID.
+        // Sanity: confirm the kernel really reports a zombie state (Z, Z+, ZN …)
+        // for that PID. Match the state leader by prefix — the same way
+        // isZombieState() reads it — instead of demanding one exact spelling,
+        // which would fail the test on a kernel that reports "Z+".
         exec('ps -p ' . $childPid . ' -o stat= 2>/dev/null', $statOut);
-        $this->assertSame('Z', trim($statOut[0] ?? ''), 'child is not actually a zombie');
+        $this->assertStringStartsWith('Z', trim($statOut[0] ?? ''), 'child is not actually a zombie');
 
         // Now the regression: isRunning must report false for the zombie.
         $this->assertFalse(

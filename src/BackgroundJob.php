@@ -225,6 +225,15 @@ class BackgroundJob
     {
         $cwd = self::workingDirectory($workingDir);
 
+        // A host may disable proc_open(); it is then removed from the function
+        // table, so the bare call below would raise a fatal Error instead of the
+        // RuntimeException every other launch path raises. isRunning() guards
+        // function_exists('exec') for the same host configuration.
+        if (! function_exists('proc_open')) {
+            @unlink($pidFile);
+            throw new \RuntimeException('Failed to launch background process');
+        }
+
         // Every fd points at /dev/null: the detached job (and anything it
         // spawns) can never hold our descriptors open, so there is no read-
         // blocking and no risk of SIGPIPE killing the job. The PID arrives
@@ -275,6 +284,12 @@ class BackgroundJob
         $launch = $cwd === null
             ? $command
             : 'cd /D ' . escapeshellarg($cwd) . ' && ' . $command;
+
+        // popen() can be disabled on the same hosts as proc_open(); a bare call
+        // would then be a fatal Error rather than the module's RuntimeException.
+        if (! function_exists('popen')) {
+            throw new \RuntimeException('Failed to launch background process');
+        }
 
         $handle = popen($launch, 'r');
         if ($handle === false) {

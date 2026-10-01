@@ -106,7 +106,16 @@ BackgroundJob::exec(
 - Triggering maintenance tasks
 - Any slow operation that shouldn't block the user
 
-## What It Doesn't Do
+## Boundaries
+
+**In scope**
+
+- The single class `BackgroundJob`: `exec()` launching a shell command as a detached background process and returning its PID, plus the platform probe `isWindows()`.
+- The per-job launch options carried by `exec()` and `script()` — `logFile` (stdout + stderr redirected into one file) and `workingDir` — and the `script()` helper, which shell-escapes the `PHP_BINARY` path and every argument.
+- Liveness polling via `isRunning($pid)`: the Unix `ps` state check (finished/zombie counts as not running) and the Windows `tasklist` lookup — the module itself stores no job state.
+- The two cross-platform launch backends: on Unix `nohup sh -c` with the PID written to a temp file; on Windows `start "" /B` (implemented, not verified end to end).
+
+**Not in scope (by design)**
 
 - **No queue system** — jobs are fire-and-forget, no ordering guarantee
 - **No retry logic** — failed jobs stay failed
@@ -237,7 +246,16 @@ BackgroundJob::exec(
 - 触发维护任务
 - 任何不应该阻塞用户的慢操作
 
-## 不做的事
+## 边界
+
+**范围内**
+
+- 单一类 `BackgroundJob`：`exec()` 把 shell 命令作为分离的后台进程启动并返回其 PID，以及平台探测方法 `isWindows()`。
+- `exec()` 与 `script()` 携带的每任务启动选项 —— `logFile`（把 stdout + stderr 重定向进同一个文件）与 `workingDir` —— 以及 PHP 脚本助手 `script()`，它会对 `PHP_BINARY` 路径和每个参数做 shell 转义。
+- 通过 `isRunning($pid)` 做存活轮询：Unix 下查询 `ps` 状态（已结束/僵尸进程视为未运行），Windows 下查询 `tasklist`；本模块自身不保存任何任务状态。
+- 两套跨平台启动后端：Unix 下 `nohup sh -c` 并把 PID 写入临时文件，Windows 下 `start "" /B`（已实现，尚未端到端验证）。
+
+**范围外（刻意不做）**
 
 - **没有队列系统** — 任务是发了就忘，不保证执行顺序
 - **没有重试逻辑** — 失败的任务就是失败了
