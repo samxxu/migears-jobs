@@ -17,19 +17,21 @@ Legend — **P0** functional or security · **P1** documentation that fails when
 
 | | |
 |---|---|
-| Unsettled | P0 0 · P1 0 · P2 1 · P3 2 · other 1 |
-| Settled | 0 of 4 |
-| Waiting on the owner | `P3-1`, `P3-2` |
-| Waiting on the reviewer | `P2-1`, `G2` |
+| Unsettled | P0 0 · P1 0 · P2 1 · P3 1 · other 0 |
+| Settled | 4 of 6 |
+| Waiting on the owner | `P3-3` |
 | Waiting on the coordinator | _nothing_ |
+| Waiting on the reviewer | `P2-1` |
 | Deferred, owing nobody | _nothing_ |
 
 | id | level | status | title |
 |---|---|---|---|
 | [`P2-1`](issues/P2-1.md) | P2 | **rejected** | On Windows the redirect is appended *after* `start '' /B <cmd>`, so cmd … |
-| [`P3-1`](issues/P3-1.md) | P3 | **open** | `launchWindows()` still calls `pclose($handle)` without checking the … |
-| [`P3-2`](issues/P3-2.md) | P3 | **open** | The zombie-process test relies on `pcntl_fork` with no availability … |
-| [`G2`](issues/G2.md) | - | **fixed** | Strict flags: `phpunit.xml.dist` currently sets none of the five. The … |
+| [`P2-2`](issues/P2-2.md) | P2 | **verified** | The launch paths called `proc_open`/`popen` with no availability check, … |
+| [`P3-1`](issues/P3-1.md) | P3 | **verified** | `launchWindows()` still calls `pclose($handle)` without checking the … |
+| [`P3-2`](issues/P3-2.md) | P3 | **verified** | The zombie-process test relies on `pcntl_fork` with no availability … |
+| [`P3-3`](issues/P3-3.md) | P3 | **open** | isRunning() on Windows interpolates $pid directly into the exec() … |
+| [`G2`](issues/G2.md) | - | **verified** | Strict flags: `phpunit.xml.dist` currently sets none of the five. The … |
 
 ## Unclosed
 
@@ -38,16 +40,14 @@ highest severity first. `waiting on` is the party who acts next, read from that 
 
 | | |
 |---|---|
-| Unclosed | **4** of 4 |
-| By status | `open` 2 · `rejected` 1 · `fixed` 1 |
-| Waiting on | owner 2 · reviewer 2 |
+| Unclosed | **2** of 6 |
+| By status | `open` 1 · `rejected` 1 |
+| Waiting on | owner 1 · reviewer 1 |
 
 | level | item | status | waiting on | title |
 |---|---|---|---|---|
 | **P2** | [`P2-1`](issues/P2-1.md) | `rejected` | reviewer | On Windows the redirect is appended *after* `start '' /B <cmd>`, so cmd … |
-| **P3** | [`P3-1`](issues/P3-1.md) | `open` | owner | `launchWindows()` still calls `pclose($handle)` without checking the … |
-| **P3** | [`P3-2`](issues/P3-2.md) | `open` | owner | The zombie-process test relies on `pcntl_fork` with no availability … |
-| **-** | [`G2`](issues/G2.md) | `fixed` | reviewer | Strict flags: `phpunit.xml.dist` currently sets none of the five. The … |
+| **P3** | [`P3-3`](issues/P3-3.md) | `open` | owner | isRunning() on Windows interpolates $pid directly into the exec() … |
 
 ## Verdict
 
@@ -88,19 +88,21 @@ No end-to-end Windows verification (noted as TODO in tests); no test for wait() 
 
 | | |
 |---|---|
-| 未了结 | P0 0 · P1 0 · P2 1 · P3 2 · 其他 1 |
-| 已了结 | 0 / 4 |
-| 等负责人 | `P3-1`, `P3-2` |
-| 等评审方 | `P2-1`, `G2` |
+| 未了结 | P0 0 · P1 0 · P2 1 · P3 1 · 其他 0 |
+| 已了结 | 4 / 6 |
+| 等模块主 | `P3-3` |
 | 等协调人 | _无_ |
+| 等评审方 | `P2-1` |
 | 已暂缓，不欠谁 | _无_ |
 
 | id | 级别 | 状态 | 标题 |
 |---|---|---|---|
 | [`P2-1`](issues/P2-1.md) | P2 | **rejected** | Windows 上重定向被追加在 start "" /B <cmd> **之后**，cmd 会把它绑定到 start 本身而非子进程；配了 … |
-| [`P3-1`](issues/P3-1.md) | P3 | **open** | launchWindows() 仍不检查 pclose($handle) 的返回值——本模块最后一处未检查的资源调用，危害低。 |
-| [`P3-2`](issues/P3-2.md) | P3 | **open** | 僵尸进程用例依赖 pcntl_fork 且无可用性守卫，pcntl 缺失时会失败而非跳过（项目约定是 markTestSkipped）。 |
-| [`G2`](issues/G2.md) | - | **fixed** | 严格开关：`phpunit.xml.dist` … |
+| [`P2-2`](issues/P2-2.md) | P2 | **verified** | 启动路径调用 `proc_open`/`popen` 时不做可用性检查，因此在任一被禁用的主机上抛出的会是未捕获的 … |
+| [`P3-1`](issues/P3-1.md) | P3 | **verified** | launchWindows() 仍不检查 pclose($handle) 的返回值——本模块最后一处未检查的资源调用，危害低。 |
+| [`P3-2`](issues/P3-2.md) | P3 | **verified** | 僵尸进程用例依赖 pcntl_fork 且无可用性守卫，pcntl 缺失时会失败而非跳过（项目约定是 markTestSkipped）。 |
+| [`P3-3`](issues/P3-3.md) | P3 | **open** | Windows 下 isRunning() 将 $pid 直接拼入 exec() 命令字符串；虽然 $pid 是 int … |
+| [`G2`](issues/G2.md) | - | **verified** | 严格开关：`phpunit.xml.dist` … |
 
 ## 未关闭
 
@@ -109,16 +111,14 @@ No end-to-end Windows verification (noted as TODO in tests); no test for wait() 
 
 | | |
 |---|---|
-| 未关闭 | **4** / 4 |
-| 按状态 | `open` 2 · `rejected` 1 · `fixed` 1 |
-| 等在谁 | 负责人 2 · 评审方 2 |
+| 未关闭 | **2** / 6 |
+| 按状态 | `open` 1 · `rejected` 1 |
+| 等在谁 | 模块主 1 · 评审方 1 |
 
 | 级别 | 条目 | 状态 | 等在谁 | 标题 |
 |---|---|---|---|---|
 | **P2** | [`P2-1`](issues/P2-1.md) | `rejected` | 评审方 | Windows 上重定向被追加在 start "" /B <cmd> **之后**，cmd 会把它绑定到 start 本身而非子进程；配了 … |
-| **P3** | [`P3-1`](issues/P3-1.md) | `open` | 负责人 | launchWindows() 仍不检查 pclose($handle) 的返回值——本模块最后一处未检查的资源调用，危害低。 |
-| **P3** | [`P3-2`](issues/P3-2.md) | `open` | 负责人 | 僵尸进程用例依赖 pcntl_fork 且无可用性守卫，pcntl 缺失时会失败而非跳过（项目约定是 markTestSkipped）。 |
-| **-** | [`G2`](issues/G2.md) | `fixed` | 评审方 | 严格开关：`phpunit.xml.dist` … |
+| **P3** | [`P3-3`](issues/P3-3.md) | `open` | 模块主 | Windows 下 isRunning() 将 $pid 直接拼入 exec() 命令字符串；虽然 $pid 是 int … |
 
 ## 结论
 
